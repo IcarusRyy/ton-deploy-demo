@@ -1,22 +1,26 @@
-import BN from "bn.js";
-import { Address, beginCell, Cell, toNano } from "ton";
-import { ContractDeployer } from "./contract-deployer";
+import BN from "bn.js"
+import { Address, beginCell, Cell, toNano } from "ton"
+import { ContractDeployer } from "./contract-deployer"
 
 // TODO temporary
-import axios from "axios";
-import axiosThrottle from "axios-request-throttle";
-import { createDeployParams, parseGetMethodCall, waitForContractDeploy } from "./utils";
-import { TonConnection } from "@ton-defi.org/ton-connection";
+import axios from "axios"
+import axiosThrottle from "axios-request-throttle"
+import {
+  createDeployParams,
+  parseGetMethodCall,
+  waitForContractDeploy,
+} from "./utils"
+import { TonConnection } from "@ton-defi.org/ton-connection"
 import {
   initData,
   mintBody,
   JETTON_MINTER_CODE,
   parseOnChainData,
   JettonMetaDataKeys,
-} from "./jetton-minter";
-axiosThrottle.use(axios, { requestsPerSecond: 0.9 }); // required since toncenter jsonRPC limits to 1 req/sec without API key
+} from "./jetton-minter"
+axiosThrottle.use(axios, { requestsPerSecond: 0.9 }) // required since toncenter jsonRPC limits to 1 req/sec without API key
 
-export const JETTON_DEPLOY_GAS = toNano(0.25);
+export const JETTON_DEPLOY_GAS = toNano(0.25)
 
 export enum JettonDeployState {
   NOT_STARTED,
@@ -31,52 +35,49 @@ export enum JettonDeployState {
 }
 
 export interface JettonDeployParams {
-  jettonName: string;
-  jettonSymbol: string;
-  jettonDescripton?: string;
-  owner: Address;
-  imageUri?: string;
-  amountToMint: BN;
+  jettonName: string
+  jettonSymbol: string
+  jettonDescripton?: string
+  owner: Address
+  imageUri?: string
+  amountToMint: BN
 }
 
 class JettonDeployController {
-
   async createJetton(
     params: JettonDeployParams,
     tonConnection: TonConnection
   ): Promise<Address> {
-    const contractDeployer = new ContractDeployer();
-
-
+    const contractDeployer = new ContractDeployer()
 
     // params.onProgress?.(JettonDeployState.BALANCE_CHECK);
-    const balance = await tonConnection._tonClient.getBalance(params.owner);
+    const balance = await tonConnection._tonClient.getBalance(params.owner)
     if (balance.lt(JETTON_DEPLOY_GAS))
-      throw new Error("Not enough balance in deployer wallet");
+      throw new Error("Not enough balance in deployer wallet")
     const deployParams = createDeployParams(params)
-    const contractAddr = contractDeployer.addressForContract(deployParams);
+    const contractAddr = contractDeployer.addressForContract(deployParams)
 
     if (await tonConnection._tonClient.isContractDeployed(contractAddr)) {
       // params.onProgress?.(JettonDeployState.ALREADY_DEPLOYED);
     } else {
-      await contractDeployer.deployContract(deployParams, tonConnection);
+      await contractDeployer.deployContract(deployParams, tonConnection)
       // params.onProgress?.(JettonDeployState.AWAITING_MINTER_DEPLOY);
-      await waitForContractDeploy(contractAddr, tonConnection._tonClient);
+      await waitForContractDeploy(contractAddr, tonConnection._tonClient)
     }
 
     const jettonDataRes = await tonConnection._tonClient.callGetMethod(
       contractAddr,
       "get_jetton_data"
-    );
+    )
 
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const deployedOwnerAddress = (
       parseGetMethodCall(jettonDataRes.stack)[2] as Cell
     )
       .beginParse()
-      .readAddress()!;
+      .readAddress()!
     if (deployedOwnerAddress.toFriendly() !== params.owner.toFriendly())
-      throw new Error("Contract deployed incorrectly");
+      throw new Error("Contract deployed incorrectly")
 
     // todo why idx:false?
     const jwalletAddressRes = await tonConnection._tonClient.callGetMethod(
@@ -92,16 +93,16 @@ class JettonDeployController {
             .toString("base64"),
         ],
       ]
-    );
+    )
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const ownerJWalletAddr = (
       parseGetMethodCall(jwalletAddressRes.stack)[0] as Cell
     )
       .beginParse()
-      .readAddress()!;
+      .readAddress()!
 
     // params.onProgress?.(JettonDeployState.AWAITING_JWALLET_DEPLOY);
-    await waitForContractDeploy(ownerJWalletAddr, tonConnection._tonClient);
+    await waitForContractDeploy(ownerJWalletAddr, tonConnection._tonClient)
 
     // params.onProgress?.(
     //   JettonDeployState.VERIFY_MINT,
@@ -112,15 +113,15 @@ class JettonDeployController {
     const jwalletDataRes = await tonConnection._tonClient.callGetMethod(
       ownerJWalletAddr,
       "get_wallet_data"
-    );
+    )
     if (
       !(parseGetMethodCall(jwalletDataRes.stack)[0] as BN).eq(
         params.amountToMint
       )
     )
-      throw new Error("Mint fail");
+      throw new Error("Mint fail")
     // params.onProgress?.(JettonDeployState.DONE);
-    return contractAddr;
+    return contractAddr
   }
 
   async getJettonDetails(
@@ -131,10 +132,10 @@ class JettonDeployController {
     const jettonDataRes = await tonConnection._tonClient.callGetMethod(
       contractAddr,
       "get_jetton_data"
-    );
+    )
 
-    const contentCell = parseGetMethodCall(jettonDataRes.stack)[3] as Cell;
-    const dict = parseOnChainData(contentCell);
+    const contentCell = parseGetMethodCall(jettonDataRes.stack)[3] as Cell
+    const dict = parseOnChainData(contentCell)
 
     const jwalletAdressRes = await tonConnection._tonClient.callGetMethod(
       contractAddr,
@@ -149,18 +150,18 @@ class JettonDeployController {
             .toString("base64"),
         ],
       ]
-    );
+    )
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const ownerJWalletAddr = (
       parseGetMethodCall(jwalletAdressRes.stack)[0] as Cell
     )
       .beginParse()
-      .readAddress()!;
+      .readAddress()!
 
     const jwalletDataRes = await tonConnection._tonClient.callGetMethod(
       ownerJWalletAddr,
       "get_wallet_data"
-    );
+    )
 
     return {
       jetton: { ...dict, contractAddress: contractAddr.toFriendly() },
@@ -171,9 +172,9 @@ class JettonDeployController {
         ownerJWallet: ownerJWalletAddr.toFriendly(),
         owner: owner.toFriendly(),
       },
-    };
+    }
   }
 }
 
-const jettonDeployController = new JettonDeployController();
-export { jettonDeployController };
+const jettonDeployController = new JettonDeployController()
+export { jettonDeployController }
